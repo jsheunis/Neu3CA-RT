@@ -1,2 +1,2 @@
-# Neu3CA-rt
+# Neu3CA-RT
 Matlab and SPM12 functions for real-time fMRI analysis, used at the Neu3CA research group at Eindhoven University of Technology (The Netherlands)
