@@ -41,30 +41,34 @@
 % In this example, we use open data from OpenNeuro. See: https://openneuro.org/datasets/ds000157
 % STEP 2 - Set required variables:
 % Specify Matlab directory
-matlab_dir             =   '';
+matlab_dir             =   '/Users/jheunis/Documents/MATLAB';
 % Specify SPM installation directory
-spm_dir             =   '';
+spm_dir             =   '/Users/jheunis/Documents/MATLAB/spm12';
 % Specify parent directory that contains all data
-data_dir            =   '';
+data_dir            =   '/Users/jheunis/Desktop/neu3carttest';
 % Specify specific subject directory
-sub = 1;
-sub_dir = [data_dir filesep 'sub-' sprintf('%02d',sub)]; % just an example
+sub_dir = [data_dir filesep 'sub-opennft']; % just an example
 % Specify functional and structural filenames (these are all based on the example data)
-functional4D_fnz     =   [sub_dir filesep 'func' filesep 'sub-' sprintf('%02d',sub) '_task-passiveimageviewing_bold.nii.gz'];
-gunzip(functional4D_fnz);
-functional4D_fn     = [sub_dir filesep 'func' filesep 'sub-' sprintf('%02d',sub) '_task-passiveimageviewing_bold.nii'];
-functional0_fn      =   [functional4D_fn ',1'];
-structural_fnz       =   [sub_dir filesep 'anat' filesep 'sub-' sprintf('%02d',sub) '_T1w.nii.gz'];
-gunzip(structural_fnz);
-structural_fn = [sub_dir filesep 'anat' filesep 'sub-' sprintf('%02d',sub) '_T1w.nii'];
+% functional4D_fnz     =   [sub_dir filesep 'func' filesep 'sub-' sprintf('%02d',sub) '_task-passiveimageviewing_bold.nii.gz'];
+% gunzip(functional4D_fnz);
+% functional4D_fn     = [sub_dir filesep 'func' filesep 'sub-' sprintf('%02d',sub) '_task-passiveimageviewing_bold.nii'];
+functional0_fn      =   [sub_dir filesep 'template_func.nii'];
+functional1_fn      =   [sub_dir filesep 'fanon-0007-00001-000001-01.nii'];
+roiL_fn = [sub_dir filesep 'lROI_1.nii'];
+roiR_fn = [sub_dir filesep 'rROI_2.nii'];
+% structural_fnz       =   [sub_dir filesep 'anat' filesep 'sub-' sprintf('%02d',sub) '_T1w.nii.gz'];
+% gunzip(structural_fnz);
+structural_fn = [sub_dir filesep 'structScan_PSC.nii'];
+
 % Experiment and processing details (here, using example data from OpenNeuro)
-Nt                =   375;
-TR = 1.6;
+Nt                =   155;
+TR = 1.92;
 timing_units = 'secs';
 task_onsets = [0; 40.1; 77.2; 111.3; 143.3; 179.4; 218.5; 251.5; 299.6; 334.7; 374.8; 411.9; 445.9; 478.0; 514.1; 553.2];
 task_durations = [24.1000; 24.06; 24.07; 24.06; 24.06; 24.07; 24.04; 24.06; 24.07; 24.10; 24.06; 24.06; 24.09; 24.09; 24.06; 24.07];
-smoothing_kernel    = [8 8 8];
-voxel_size = [4 4 4];
+smoothing_kernel    = [6 6 6];
+voxel_size = [3 3 3.75];
+Nskip = 5;
 
 %%
 
@@ -107,8 +111,8 @@ funcref_3D  = spm_read_vols(funcref_spm);
 [Ni, Nj, Nk] = size(funcref_3D);
 N_vox = Ni*Nj*Nk;
 
-% Masking
-[GM_img_bin, WM_img_bin, CSF_img_bin] = neu3ca_rt_getSegments(preproc_data.rgm_fn, preproc_data.rwm_fn, preproc_data.rcsf_fn, 0.1);
+% Whole brain masking
+[GM_img_bin, WM_img_bin, CSF_img_bin] = neu3ca_rt_getSegments(preproc_data.rgm_fn, preproc_data.rwm_fn, preproc_data.rcsf_fn, 0.5);
 I_GM = find(GM_img_bin);
 I_WM = find(WM_img_bin);
 I_CSF = find(CSF_img_bin);
@@ -116,8 +120,14 @@ mask_3D = GM_img_bin | WM_img_bin | CSF_img_bin;
 I_mask = find(mask_3D);
 N_maskvox = numel(I_mask);
 
+% ROI masking
+roiL_img = spm_read_vols(spm_vol(roiL_fn));
+roiR_img = spm_read_vols(spm_vol(roiR_fn));
+I_roiL = find(roiL_img(:)>0);
+I_roiR = find(roiR_img(:)>0);
+
 % Real-time realignment and reslicing parameter initialisation
-% This step is based on the real-time implementation of relaignment and
+% This step is based on the real-time implementation of realignment and
 % reslicing for the OpenNFT toolbox: https://github.com/OpenNFT/OpenNFT
 flagsSpmRealign = struct('quality',.9,'fwhm',5,'sep',4,...
     'interp',4,'wrap',[0 0 0],'rtm',0,'PW','','lkp',1:6);
@@ -132,28 +142,30 @@ R(1,1).Vol = funcref_3D;
 N_skip = 0;
 
 % Run SPM 1st level design in order to get design matrix
-sess_params = struct;
-sess_params.timing_units = timing_units;
-sess_params.timing_RT = TR;
-sess_params.cond_name = 'Task';
-sess_params.cond_onset = task_onsets;
-sess_params.cond_duration = task_durations;
-if ~exist([sub_dir filesep 'SPM.mat'], 'file')
-    cd(sub_dir)
-    spm_specify1stlevel_jsh(data_dir, functional4D_fn, '', sess_params)
-end
-load([subj_dir filesep 'SPM.mat']);
-convolved_task_design = SPM.xX.X(:,1); % convolved task time course regressor
+% sess_params = struct;
+% sess_params.timing_units = timing_units;
+% sess_params.timing_RT = TR;
+% sess_params.cond_name = 'Task';
+% sess_params.cond_onset = task_onsets;
+% sess_params.cond_duration = task_durations;
+% if ~exist([sub_dir filesep 'SPM.mat'], 'file')
+%     cd(sub_dir)
+%     spm_specify1stlevel_jsh(data_dir, functional4D_fn, '', sess_params)
+% end
+Ndyn = Nt-Nskip;
+load([sub_dir filesep 'SPM_PSC_Int_155.mat']);
+convolved_task_design = SPM.xX.X(:,2); % convolved task time course regressor
 drift_regressors = SPM.xX.K.X0; % cosine basis set for drift regressors
-X_design = [convolved_task_design drift_regressors ones(Nt,1)]; % design matrix, including task + drift + constat regressors
+X_design = [convolved_task_design drift_regressors ones(Nt-Nskip,1)]; % design matrix, including task + drift + constat regressors
 
 % Predefine some matrices/structures
-F = zeros(Ni*Nj*Nk,Nt);
-F_dyn_denoised = zeros(Ni*Nj*Nk, Nt);
+F = zeros(Ni*Nj*Nk,Ndyn);
+F_dyn_denoised = zeros(Ni*Nj*Nk, Ndyn);
+TS = nan(2, Ndyn);
 rF = F;
 srF = F;
-MP = zeros(Nt,6);
-T = zeros(Nt,8);
+MP = zeros(Ndyn,6);
+T = zeros(Ndyn,8);
 
 
 %%
@@ -165,12 +177,13 @@ T = zeros(Nt,8);
 % Create figure for real-time visualisation, if required
 % fig = figure;
 
-for i = 1:Nt
+for i = (Nskip+1):Nt
     % STEP 1: LOAD CURRENT VOLUME
     % Using SPM
     tic;
+    disp(num2str(i))
     % Set filename of expected dynamic image
-    dynamic_fn = [functional4D_fn ',' num2str(i)];
+    dynamic_fn = [sub_dir filesep 'fanon-0007-' sprintf('%.5d', i) '-' sprintf('%.6d', i) '-01.nii'];
     % Load dynamic data into matrix
     f_spm = spm_vol(dynamic_fn);
     f = spm_read_vols(f_spm);
@@ -221,6 +234,8 @@ for i = 1:Nt
     % STEP 6: CUSTOM CODE
     tic;
     % add your custom code here
+    TS(1,i) = mean(F_dyn_denoised(I_roiL,i));
+    TS(2,i) = mean(F_dyn_denoised(I_roiR,i));
     t6=toc;
     
     % STEP 7: VISUALISATIONS  
